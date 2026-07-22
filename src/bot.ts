@@ -5,8 +5,6 @@ import { LOCK_TYPES, matchLock } from "./locks.ts";
 const composer = new Composer();
 const db = new PmManagerDB();
 
-// Remembers a pending /lock or /unlock while the owner picks the target user
-// via the request_users keyboard button. Keyed by owner id.
 const pendingLock = new Map<
 	number,
 	{ action: "lock" | "unlock"; types: string[] }
@@ -46,8 +44,6 @@ composer.command(
 		),
 );
 
-// /lock and /unlock: parse the requested lock types, then ask the owner to
-// pick which DM (user) the rule applies to via a request_users button.
 const handleLockCommand = async (ctx: Context, action: "lock" | "unlock") => {
 	const ownerId = ctx.from?.id;
 	if (!ownerId) return;
@@ -99,6 +95,26 @@ const handleLockCommand = async (ctx: Context, action: "lock" | "unlock") => {
 
 composer.command("lock", (ctx: Context) => handleLockCommand(ctx, "lock"));
 composer.command("unlock", (ctx: Context) => handleLockCommand(ctx, "unlock"));
+
+composer.command("logger", (ctx: Context) => {
+	const ownerId = ctx.from?.id;
+	if (!ownerId) return;
+	const arg = String(ctx.match ?? "").trim().toLowerCase();
+	if (arg !== "on" && arg !== "off") {
+		return reply(
+			ctx,
+			"Usage: <code>/logger on</code> or <code>/logger off</code>.",
+		);
+	}
+	const ok = db.setLogging(ownerId, arg === "on");
+	if (!ok) {
+		return reply(ctx, "No business connection found for your account.");
+	}
+	return reply(
+		ctx,
+		`PM logging is now <b>${arg === "on" ? "ON" : "OFF"}</b>.`,
+	);
+});
 
 composer.command("locks", (ctx: Context) => {
 	const ownerId = ctx.from?.id;
@@ -157,8 +173,27 @@ composer.on("message:users_shared", async (ctx: Context) => {
 composer.on("business_connection:is_enabled", async (ctx: Context) => {
 	if (ctx.businessConnection?.is_enabled) {
 		try {
+			const ownerChatId = ctx.businessConnection.user_chat_id;
+			const connId = ctx.businessConnection.id;
+			// deno-lint-ignore no-explicit-any
+			const newRights = (ctx.businessConnection as any).rights ?? {};
+			const known = db.getOwnerIdFromBusinessId(connId) !== null;
+			db.addBusinessConnection(ownerChatId, connId);
+			if (known) {
+				const oldRights = db.getConnectionRights(connId);
+				db.setConnectionRights(connId, JSON.stringify(newRights));
+				const diff = describeRightsDiff(oldRights, newRights);
+				return await ctx.api.sendMessage(
+					ownerChatId,
+					diff
+						? `Permissions updated:\n${diff}`
+						: "Business connection updated.",
+					{ parse_mode: "HTML" },
+				);
+			}
+			db.setConnectionRights(connId, JSON.stringify(newRights));
 			await ctx.api.sendMessage(
-				ctx.businessConnection.user_chat_id,
+				ownerChatId,
 				"Business connection is enabled you can now send messages to the business",
 				{
 					reply_markup: {
@@ -209,10 +244,6 @@ composer.on("business_connection:is_enabled", async (ctx: Context) => {
 					},
 				},
 			);
-			db.addBusinessConnection(
-				ctx.businessConnection.user_chat_id,
-				ctx.businessConnection.id,
-			);
 		} catch (error) {
 			console.error(
 				`Error in business_connection:is_enabled for ${ctx.businessConnection.user_chat_id}:`,
@@ -261,8 +292,8 @@ composer.on("business_message", async (ctx: Context) => {
 	const senderId = ctx.businessMessage?.from?.id;
 	const ownerId = db.getOwnerIdFromBusinessId(connectionId);
 	if (!ownerId || ownerId === senderId || !senderId) return;
+	if (!db.isLoggingEnabled(connectionId)) return;
 
-	// Apply per-user locks: block (and delete) matching messages before relaying.
 	const locks = db.getLocks(ownerId, senderId);
 	if (locks.length && ctx.businessMessage) {
 		const hit = matchLock(ctx.businessMessage, locks);
@@ -334,6 +365,27 @@ composer.on("message", async (ctx: Context) => {
 	return await sendMessage(ctx, userId, null, null, businessId);
 });
 
+function describeRightsDiff(
+	oldJson: string | null,
+	next: Record<string, unknown>,
+): string {
+	const prev: Record<string, unknown> = oldJson ? JSON.parse(oldJson) : {};
+	const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+	const lines: string[] = [];
+	for (const k of keys) {
+		const before = !!prev[k];
+		const after = !!next[k];
+		if (before === after) continue;
+		const label = k.replace(/^can_/, "").replace(/_/g, " ");
+		lines.push(
+			`${after ? "✅" : "❌"} <code>${label}</code> ${
+				after ? "enabled" : "disabled"
+			}`,
+		);
+	}
+	return lines.join("\n");
+}
+
 async function sendIntro(
 	ctx: Context,
 	logchat: number,
@@ -371,7 +423,6 @@ async function sendIntro(
 		}</code>\n`;
 		if (bio) introMessage += `\n\n<b>✘ Bɪᴏ:</b> <code>${bio}</code>`;
 		if (photos.length > 0) {
-			// Pick the highest-resolution size of the first profile photo.
 			const sizes = photos[0];
 			const best = sizes[sizes.length - 1];
 			await ctx.api.sendPhoto(logchat, best.file_id, {
@@ -423,7 +474,6 @@ async function sendMessage(
 			opts,
 		);
 	} else if (message.photo) {
-		// message.photo is sorted small→large; forward the largest size.
 		const best = message.photo[message.photo.length - 1];
 		sent = await ctx.api.sendPhoto(chatId, best.file_id, opts);
 	} else if (message.sticker) {

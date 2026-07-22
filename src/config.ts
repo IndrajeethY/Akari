@@ -1,5 +1,3 @@
-// Environment is loaded natively via the `--env-file` flag (see deno.json tasks),
-// so no dotenv dependency is needed.
 class Config {
 	public readonly token: string;
 	public readonly dbString: string;

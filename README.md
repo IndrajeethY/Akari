@@ -47,6 +47,19 @@ Required permissions (already wired into the tasks): `--allow-net`,
    are admin and the bot can manage topics.
 3. Incoming PMs now land as topics in that group. Reply in the topic to answer.
 
+## Toggle logging
+
+Pause or resume PM forwarding without disconnecting the business account:
+
+```
+/logger on    # forward incoming PMs to the log chat (default)
+/logger off   # stop forwarding
+```
+
+The log chat must be a **forum group** where you are an admin with
+`can_restrict_members`, `can_pin_messages`, and `can_manage_topics` rights, and
+the bot is already a member. You do not need to be the group owner.
+
 ## Locks (anti-spam)
 
 Block specific kinds of incoming messages **per user**. Matching messages are

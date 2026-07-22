@@ -1,6 +1,5 @@
 import type { Message } from "grammy/types";
 
-// A predicate returns true when the message should be blocked by that lock.
 type LockPredicate = (m: Message) => boolean;
 
 const text = (m: Message): string => m.text ?? m.caption ?? "";
@@ -23,7 +22,6 @@ const zalgoMarks = /[̀-ͯ҃-҉᪰-᫿᷀-᷿]/g;
 const emojiRe = /\p{Extended_Pictographic}/u;
 
 export const LOCKS: Record<string, LockPredicate> = {
-	// Media
 	photo: (m) => !!m.photo,
 	video: (m) => !!m.video,
 	videonote: (m) => !!m.video_note,
@@ -34,7 +32,6 @@ export const LOCKS: Record<string, LockPredicate> = {
 	gif: (m) => !!m.animation,
 	media: isMedia,
 
-	// Content
 	url: (m) => hasEntity(m, ["url", "text_link"]),
 	forward: (m) => !!m.forward_origin,
 	email: (m) =>
@@ -45,7 +42,6 @@ export const LOCKS: Record<string, LockPredicate> = {
 	location: (m) => !!(m.location || m.venue),
 	contact: (m) => !!m.contact,
 
-	// Text filters
 	rtl: (m) => /[֐-׿؀-ۿݐ-ݿ]/.test(text(m)),
 	cjk: (m) =>
 		/[぀-ヿㇰ-ㇿ㐀-䶿一-鿿가-힯]/.test(
@@ -59,24 +55,20 @@ export const LOCKS: Record<string, LockPredicate> = {
 		return t.replace(/\p{Extended_Pictographic}|️|‍|\s/gu, "") === "";
 	},
 
-	// Sticker types
 	stickeranimated: (m) =>
 		!!(m.sticker && (m.sticker.is_animated || m.sticker.is_video)),
 	premium: (m) => !!m.sticker?.premium_animation,
 
-	// Forward types
 	forwardbot: (m) => fwd(m)?.type === "user" && !!fwd(m)?.sender_user?.is_bot,
 	forwardchannel: (m) => fwd(m)?.type === "channel",
 	forwardstory: (m) => !!m.story,
 
-	// Other
 	externalreply: (m) => !!m.external_reply,
 	all: () => true,
 };
 
 export const LOCK_TYPES: string[] = Object.keys(LOCKS);
 
-/** Returns the name of the first active lock that matches, or null. */
 export function matchLock(m: Message, active: string[]): string | null {
 	return active.find((t) => LOCKS[t]?.(m)) ?? null;
 }

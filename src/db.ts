@@ -5,15 +5,12 @@ interface Connection {
 	ownerId: number;
 	connectionId: string;
 	logChatId: number | null;
+	logEnabled: number;
 }
 
 class PmManagerDB {
 	private db: Database;
 
-	// In-memory caches for the lookups that run on every incoming message.
-	// business_connections mutates rarely, so we cache full rows and clear the
-	// whole set on any write. Locks are cached per (owner,target) and evicted
-	// on the specific key when changed.
 	private connByConnId = new Map<string, Connection | null>();
 	private connByLogChat = new Map<number, Connection | null>();
 	private connByOwner = new Map<number, Connection | null>();
@@ -43,9 +40,25 @@ class PmManagerDB {
 				id           INTEGER PRIMARY KEY AUTOINCREMENT,
 				ownerId      INTEGER,
 				connectionId TEXT,
-				logChatId    INTEGER
+				logChatId    INTEGER,
+				rights       TEXT,
+				logEnabled   INTEGER DEFAULT 1
 			);
 		`);
+		for (
+			const col of [
+				"rights TEXT",
+				"logEnabled INTEGER DEFAULT 1",
+			]
+		) {
+			try {
+				this.db.exec(
+					`ALTER TABLE business_connections ADD COLUMN ${col};`,
+				);
+			} catch {
+				// noop
+			}
+		}
 		this.db.exec(`
 			CREATE TABLE IF NOT EXISTS locks (
 				ownerId  INTEGER,
@@ -54,7 +67,6 @@ class PmManagerDB {
 				PRIMARY KEY (ownerId, targetId, lockType)
 			);
 		`);
-		// Speed up the lookups the bot performs on every message.
 		this.db.exec(
 			"CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages (ChatId);",
 		);
@@ -65,8 +77,6 @@ class PmManagerDB {
 			"CREATE INDEX IF NOT EXISTS idx_locks_owner_target ON locks (ownerId, targetId);",
 		);
 	}
-
-	// --- connection cache helpers ---------------------------------------
 
 	private clearConnCache(): void {
 		this.connByConnId.clear();
@@ -82,7 +92,7 @@ class PmManagerDB {
 		if (cache.has(key)) return cache.get(key)!;
 		const row = this.db
 			.prepare(
-				`SELECT ownerId, connectionId, logChatId FROM business_connections WHERE ${column} = ?`,
+				`SELECT ownerId, connectionId, logChatId, logEnabled FROM business_connections WHERE ${column} = ?`,
 			)
 			.get<Connection>(key);
 		const conn = row ?? null;
@@ -113,8 +123,6 @@ class PmManagerDB {
 			"ownerId",
 		);
 	}
-
-	// --- messages -------------------------------------------------------
 
 	addMessage(
 		fromId: number,
@@ -169,8 +177,6 @@ class PmManagerDB {
 			.get<{ userId: number }>(topicId, logchatid);
 		return row ? Number(row.userId) : null;
 	}
-
-	// --- business connections -------------------------------------------
 
 	addBusinessConnection(ownerId: number, connectionId: string): void {
 		const existing = this.db
@@ -235,7 +241,37 @@ class PmManagerDB {
 		return conn ? Number(conn.ownerId) : null;
 	}
 
-	// --- locks ----------------------------------------------------------
+	getConnectionRights(connectionId: string): string | null {
+		const row = this.db
+			.prepare(
+				"SELECT rights FROM business_connections WHERE connectionId = ?",
+			)
+			.get<{ rights: string | null }>(connectionId);
+		return row?.rights ?? null;
+	}
+
+	setConnectionRights(connectionId: string, rights: string): void {
+		this.db
+			.prepare(
+				"UPDATE business_connections SET rights = ? WHERE connectionId = ?",
+			)
+			.run(rights, connectionId);
+	}
+
+	setLogging(ownerId: number, enabled: boolean): boolean {
+		const changes = this.db
+			.prepare(
+				"UPDATE business_connections SET logEnabled = ? WHERE ownerId = ?",
+			)
+			.run(enabled ? 1 : 0, ownerId);
+		this.clearConnCache();
+		return changes > 0;
+	}
+
+	isLoggingEnabled(connectionId: string): boolean {
+		const conn = this.byConnId(connectionId);
+		return conn ? conn.logEnabled !== 0 : true;
+	}
 
 	private lockKey(ownerId: number, targetId: number): string {
 		return `${ownerId}:${targetId}`;
@@ -280,8 +316,6 @@ class PmManagerDB {
 			)
 			.all<{ targetId: number; lockType: string }>(ownerId);
 	}
-
-	// --- lifecycle ------------------------------------------------------
 
 	checkDatabaseConnection(): boolean {
 		try {
