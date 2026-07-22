@@ -10,6 +10,9 @@ const pendingLock = new Map<
 	{ action: "lock" | "unlock"; types: string[] }
 >();
 
+const escapeHtml = (s: string) =>
+	s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
 // Functions
 // deno-lint-ignore no-explicit-any
 const reply = (ctx: Context, text: string, reply_markup: any = undefined) =>
@@ -338,6 +341,58 @@ composer.on("business_message", async (ctx: Context) => {
 		return await sendMessage(ctx, logchat, topicid, replytoId);
 	}
 	return await sendMessage(ctx, logchat, topicid);
+});
+
+composer.on("edited_business_message", async (ctx: Context) => {
+	const em = ctx.update.edited_business_message;
+	if (!em) return;
+	const connectionId = String(em.business_connection_id);
+	const senderId = em.from?.id;
+	const ownerId = db.getOwnerIdFromBusinessId(connectionId);
+	if (!ownerId || !senderId || ownerId === senderId) return;
+	const logchat = db.getLogChatFromBusinessId(connectionId);
+	if (!logchat) return;
+	const topicid = db.getTopicIdByUserId(senderId, connectionId);
+	if (!topicid) return;
+
+	const mirroredId = db.getMessagesByFromId(em.message_id, logchat);
+	const newText = em.text ?? em.caption;
+	const note = newText
+		? `✏️ <b>Edited:</b>\n${escapeHtml(newText)}`
+		: "✏️ <i>Edited a message.</i>";
+	await ctx.api.sendMessage(logchat, note, {
+		message_thread_id: topicid,
+		parse_mode: "HTML",
+		reply_parameters: mirroredId ? { message_id: mirroredId } : undefined,
+	});
+});
+
+composer.on("deleted_business_messages", async (ctx: Context) => {
+	const dm = ctx.update.deleted_business_messages;
+	if (!dm) return;
+	const connectionId = String(dm.business_connection_id);
+	const senderId = dm.chat?.id;
+	const ownerId = db.getOwnerIdFromBusinessId(connectionId);
+	if (!ownerId || !senderId || ownerId === senderId) return;
+	const logchat = db.getLogChatFromBusinessId(connectionId);
+	if (!logchat) return;
+	const topicid = db.getTopicIdByUserId(senderId, connectionId);
+	if (!topicid) return;
+
+	for (const mid of dm.message_ids) {
+		const mirroredId = db.getMessagesByFromId(mid, logchat);
+		await ctx.api.sendMessage(
+			logchat,
+			"🗑 <i>User deleted this message.</i>",
+			{
+				message_thread_id: topicid,
+				parse_mode: "HTML",
+				reply_parameters: mirroredId
+					? { message_id: mirroredId }
+					: undefined,
+			},
+		);
+	}
 });
 
 composer.on("message", async (ctx: Context) => {

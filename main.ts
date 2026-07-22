@@ -18,7 +18,13 @@ bot.use(composer);
 bot.catch((err) => console.error(err));
 bot.start({
 	drop_pending_updates: true,
-	allowed_updates: ["message", "business_connection", "business_message"],
+	allowed_updates: [
+		"message",
+		"business_connection",
+		"business_message",
+		"edited_business_message",
+		"deleted_business_messages",
+	],
 });
 
 const shutdown = () => {
