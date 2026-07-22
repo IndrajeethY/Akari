@@ -18,7 +18,7 @@ class PmManagerDB {
 
 	constructor() {
 		const config = new Config();
-		this.db = new Database(config.dbString);
+		this.db = new Database(config.dbString, { int64: true });
 		this.initDatabase();
 	}
 
@@ -270,7 +270,7 @@ class PmManagerDB {
 
 	isLoggingEnabled(connectionId: string): boolean {
 		const conn = this.byConnId(connectionId);
-		return conn ? conn.logEnabled !== 0 : true;
+		return conn ? Number(conn.logEnabled) !== 0 : true;
 	}
 
 	private lockKey(ownerId: number, targetId: number): string {
