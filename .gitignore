@@ -1,2 +1,16 @@
+# Secrets
 .env
+
+# SQLite database + WAL sidecar files
 database.db
+database.db-shm
+database.db-wal
+*.db
+*.db-shm
+*.db-wal
+
+# Local editor / agent state
+.claude/
+
+# Deno
+# note: deno.lock IS committed on purpose (reproducible deps)

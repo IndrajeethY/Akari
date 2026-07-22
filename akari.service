@@ -1,0 +1,20 @@
+[Unit]
+Description=Akari PM Manager Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/Akari
+ExecStart=/root/.deno/bin/deno task start
+Restart=on-failure
+RestartSec=5
+# Deno needs a writable cache dir for remote deps + the sqlite native lib
+Environment=DENO_DIR=/root/.cache/deno
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=akari
+
+[Install]
+WantedBy=multi-user.target

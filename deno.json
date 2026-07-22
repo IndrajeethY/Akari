@@ -1,8 +1,12 @@
 {
-  "importMap": "./import_map.json",
+  "imports": {
+    "grammy": "https://deno.land/x/grammy@v1.45.1/mod.ts",
+    "grammy/types": "https://deno.land/x/grammy@v1.45.1/types.ts",
+    "@db/sqlite": "jsr:@db/sqlite@0.13"
+  },
   "tasks": {
-    "start": "deno run --allow-net --allow-read --allow-env --allow-write main.ts",
-    "dev": "deno run --watch --allow-net --allow-read --allow-env main.ts"
+    "start": "deno run --allow-net --allow-read --allow-write --allow-env --allow-ffi --allow-import --env-file main.ts",
+    "dev": "deno run --watch --allow-net --allow-read --allow-write --allow-env --allow-ffi --allow-import --env-file main.ts"
   },
   "lint": {
     "include": ["src/", "main.ts"],
